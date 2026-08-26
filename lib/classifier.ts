@@ -23,6 +23,8 @@ const STRONG_KEYWORDS = [
   "hezbollah", "hamas", "idf", "houthi", "houthis",
   "wagner group", "rsf", "al-shabaab", "boko haram",
   "shelled", "bombarded",
+  // Major wildfires / conflict-related fires (issue #5.34, #2).
+  "wildfire", "wildfires", "forest fire", "bushfire", "firefighters battling",
 ];
 
 // Weak signals: need to co-occur with another signal to count.
@@ -41,6 +43,9 @@ const WEAK_KEYWORDS = [
   "drone", "drones", "uav",
   "tank", "tanks",
   "naval", "navy",
+  "fire", "fires", "blaze", "wildfire", "flames", "burning", "inferno",
+  "tanker", "warship",
+  "speech", "address", "press conference",
 ];
 
 // Headlines that usually aren't war events even if keywords fire.
@@ -58,9 +63,10 @@ const EVENT_TYPE_RULES: Array<{ type: EventType; patterns: RegExp[] }> = [
   { type: "drone", patterns: [/\b(drone strike|drone attack|drones|shahed|loitering munition|kamikaze drone|uav)\b/i] },
   { type: "shelling", patterns: [/\b(artillery|shelling|shelled|mortar|rocket fire|rockets fired|grad|himars|bombardment)\b/i] },
   { type: "ground", patterns: [/\b(ground offensive|counter[- ]?offensive|captured|liberated|frontline|front line|tank|tanks|infantry|advance)\b/i] },
-  { type: "naval", patterns: [/\b(navy|naval|warship|frigate|destroyer|submarine|red sea|black sea fleet|corvette|strait of hormuz)\b/i] },
+  { type: "naval", patterns: [/\b(navy|naval|warship|frigate|destroyer|submarine|red sea|black sea fleet|corvette|strait of hormuz|tanker)\b/i] },
+  { type: "fire", patterns: [/\b(wildfire|wildfires|forest fire|bushfire|blaze|inferno|firefighters?|flames|wall of fire)\b/i] },
   { type: "casualties", patterns: [/\b(killed|dead|wounded|casualties|death toll|injured|fatalities|bodies)\b/i] },
-  { type: "diplomacy", patterns: [/\b(ceasefire|truce|peace talks|sanction|summit|un resolution|diplomatic|envoy)\b/i] },
+  { type: "diplomacy", patterns: [/\b(ceasefire|truce|peace talks|sanction|summit|un resolution|diplomatic|envoy|speech|address to the nation|press conference|declares?)\b/i] },
   { type: "cyber", patterns: [/\b(cyberattack|cyber attack|hacked|hackers|ransomware|ddos)\b/i] },
   { type: "humanitarian", patterns: [/\b(refugee|refugees|displaced|aid convoy|humanitarian|famine|blockade|hospital|wfp|unicef)\b/i] },
 ];

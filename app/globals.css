@@ -266,6 +266,52 @@ body {
   to   { stroke-dashoffset: -32; }
 }
 
+/* Printable incident report (issue #5.43–45): isolate #warmap-report so the
+   browser's print / Save-as-PDF captures only the document. */
+@media print {
+  body * { visibility: hidden !important; }
+  #warmap-report, #warmap-report * { visibility: visible !important; }
+  #warmap-report {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .leaflet-container { display: none !important; }
+}
+
+/* Per-type glyph drawn on top of the coloured dot (issue #5.25) */
+.warmap-glyph {
+  position: absolute;
+  inset: 0;
+  width: 60%;
+  height: 60%;
+  margin: auto;
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.95);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+  z-index: 2;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.7));
+}
+
+/* Fire glow (issue #5.34) */
+.warmap-anim-fire {
+  position: absolute;
+  inset: -5px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(251, 146, 60, 0.65), transparent 70%);
+  animation: warmapFire 0.9s ease-in-out infinite alternate;
+}
+@keyframes warmapFire {
+  from { opacity: 0.4; transform: scale(0.9); }
+  to   { opacity: 0.95; transform: scale(1.2); }
+}
+
 /* Origin marker for vectors (faint ring where it started) */
 .warmap-origin {
   width: 12px;

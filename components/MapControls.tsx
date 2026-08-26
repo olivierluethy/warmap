@@ -6,12 +6,13 @@ import { trackEvent } from "@/lib/analytics";
 interface Props {
   onResetView: () => void;
   onOpenSources: () => void;
+  onExport: () => void;
 }
 
 // Vertical toolbar anchored under Leaflet's zoom control (top-left): reset the
-// map view (issue #4 / #5.2), toggle fullscreen (#5.6), and open the news
-// source overview (#5.12).
-export default function MapControls({ onResetView, onOpenSources }: Props) {
+// map view (issue #4 / #5.2), toggle fullscreen (#5.6), open the news source
+// overview (#5.12), and export a report (#5.43).
+export default function MapControls({ onResetView, onOpenSources, onExport }: Props) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [supportsFullscreen, setSupportsFullscreen] = useState(false);
 
@@ -83,6 +84,15 @@ export default function MapControls({ onResetView, onOpenSources }: Props) {
           <path d="M8 7h7" />
           <path d="M8 11h7" />
           <path d="M8 15h4" />
+        </svg>
+      </button>
+
+      <button onClick={onExport} aria-label="Export incident report" title="Export incident report" className={btn}>
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <path d="M14 2v6h6" />
+          <path d="M9 15h6" />
+          <path d="M12 18v-6" />
         </svg>
       </button>
     </div>

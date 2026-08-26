@@ -48,6 +48,12 @@ export type GtagEventName =
   | "toggle_reporter"
   | "select_time_window"
   | "timeline_bucket_click"
+  | "set_custom_range"
+  | "open_incident_detail"
+  | "open_report"
+  | "print_report"
+  | "add_source"
+  | "remove_source"
   // existing CTA buttons
   | "blog_click"
   | "request_access_click"

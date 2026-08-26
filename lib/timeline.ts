@@ -1,7 +1,8 @@
 import type { WarEvent } from "./types";
 
-// Predefined analysis windows (issue #5.17). "all" disables time filtering.
-export type TimeWindow = "2h" | "6h" | "24h" | "30d" | "all";
+// Predefined analysis windows (issue #5.17). "all" disables time filtering;
+// "custom" uses a user-supplied from/to range (issue #5.18).
+export type TimeWindow = "2h" | "6h" | "24h" | "30d" | "all" | "custom";
 
 export const TIME_WINDOWS: Array<{ id: TimeWindow; label: string; ms: number }> = [
   { id: "2h", label: "2h", ms: 2 * 60 * 60 * 1000 },
@@ -71,4 +72,41 @@ export function bucketize(
     buckets[idx].count++;
   }
   return buckets;
+}
+
+/** Bucketize over an explicit [from, to] range (issue #5.18 custom range). */
+export function bucketizeRange(
+  events: WarEvent[],
+  from: number,
+  to: number,
+  count = 32,
+): TimelineBucket[] {
+  const span = Math.max(1, to - from);
+  const width = span / count;
+  const buckets: TimelineBucket[] = Array.from({ length: count }, (_, i) => ({
+    start: from + i * width,
+    end: from + (i + 1) * width,
+    count: 0,
+  }));
+  for (const e of events) {
+    const t = ts(e);
+    if (t < from || t > to) continue;
+    let idx = Math.floor((t - from) / width);
+    if (idx < 0) idx = 0;
+    if (idx >= count) idx = count - 1;
+    buckets[idx].count++;
+  }
+  return buckets;
+}
+
+/** Filter events to an explicit [from, to] range. */
+export function filterByRange(
+  events: WarEvent[],
+  from: number,
+  to: number,
+): WarEvent[] {
+  return events.filter((e) => {
+    const t = ts(e);
+    return t >= from && t <= to;
+  });
 }

@@ -8,7 +8,14 @@ import type {
 } from "leaflet";
 import type { EventType, Mover, WarEvent } from "@/lib/types";
 import { trackEvent } from "@/lib/analytics";
-import { EVENT_LABELS, eventColor, relativeTime, severityToSize } from "./event-style";
+import {
+  EVENT_LABELS,
+  eventColor,
+  glyphKindFor,
+  glyphSvg,
+  relativeTime,
+  severityToSize,
+} from "./event-style";
 
 // Coarse coordinate buckets keep GA cardinality bounded — exact lat/lng would
 // register as a unique value per pan, blowing past GA's per-parameter limits.
@@ -86,10 +93,15 @@ function animationLayer(type: EventType): string {
   switch (type) {
     case "airstrike":
     case "missile":
+      // Streak + explosion burst (issue #5.33).
       return `
         <svg class="warmap-anim warmap-anim-streak" viewBox="0 0 120 120" aria-hidden="true">
           <line x1="100" y1="20" x2="60" y2="60" />
-        </svg>`;
+        </svg>
+        <span class="warmap-anim warmap-anim-burst"></span>`;
+    case "fire":
+      // Flickering fire glow (issue #5.34).
+      return `<span class="warmap-anim warmap-anim-fire"></span>`;
     case "drone":
       return `
         <svg class="warmap-anim warmap-anim-orbit" viewBox="0 0 42 42" aria-hidden="true">
@@ -184,6 +196,7 @@ interface Props {
   events: WarEvent[];
   focusedEventId: string | null;
   highlightedId: string | null;
+  showVectors?: boolean;
   onMarkerHover?: (eventId: string | null) => void;
   onReady?: (api: WarMapApi) => void;
 }
@@ -196,6 +209,7 @@ export default function WarMap({
   events,
   focusedEventId,
   highlightedId,
+  showVectors = true,
   onMarkerHover,
   onReady,
 }: Props) {
@@ -369,11 +383,13 @@ export default function WarMap({
         0,
       );
       const size = severityToSize(peakSeverity);
+      const glyph = glyphSvg(glyphKindFor(primary));
       const html = `
         <div class="warmap-marker${lowConfidence ? " is-low-confidence" : ""}" style="--marker-color:${color};width:${size}px;height:${size}px;">
           ${animationLayer(primary.eventType)}
           <span class="warmap-marker-pulse"></span>
           <span class="warmap-marker-dot"></span>
+          ${glyph}
           ${count > 1 ? `<span class="warmap-cluster-count" style="position:absolute;top:-10px;right:-12px;padding:1px 5px;border-radius:999px;background:rgba(10,10,10,0.9);color:#fff;font-size:10px;font-weight:600;border:1px solid ${color};">${count}</span>` : ""}
         </div>
       `;
@@ -473,8 +489,11 @@ export default function WarMap({
     if (!L || !map) return;
 
     const seen = new Set<string>();
+    // When the vector layer is toggled off, treat the active set as empty so
+    // the removal pass below clears any existing trajectories.
+    const active = showVectors ? vectored : [];
 
-    for (const ev of vectored) {
+    for (const ev of active) {
       seen.add(ev.id);
       if (vectorsRef.current.has(ev.id)) continue;
 
@@ -515,7 +534,7 @@ export default function WarMap({
         vectorsRef.current.delete(id);
       }
     }
-  }, [vectored, mapReady]);
+  }, [vectored, mapReady, showVectors]);
 
   // Fly to focused event
   useEffect(() => {

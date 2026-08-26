@@ -22,6 +22,16 @@ import type { EventType, EventVector, FeedItem, WarEvent } from "./types";
  *        Use the legacy gazetteer text-scan as the location resolver.
  *   3. Build a WarEvent and hand it to the store.
  */
+// Geolocation validation (issue #5.23/#5.24): reject coordinates that are out
+// of range or sit on "null island" (0,0) — a classic geocoding failure that
+// would otherwise drop a marker in the Gulf of Guinea.
+function isValidCoord(lat: number, lng: number): boolean {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (lat < -85 || lat > 85 || lng < -180 || lng > 180) return false;
+  if (Math.abs(lat) < 0.5 && Math.abs(lng) < 0.5) return false;
+  return true;
+}
+
 export async function extractEvent(item: FeedItem): Promise<WarEvent | null> {
   const text = `${item.title}. ${item.summary}`;
   const keywordResult = classify(text);
@@ -48,7 +58,7 @@ export async function extractEvent(item: FeedItem): Promise<WarEvent | null> {
           {},
           { itemId: item.id, source: "primary" },
         );
-        if (resolved) {
+        if (resolved && isValidCoord(resolved.lat, resolved.lng)) {
           return buildEvent(item, {
             eventType,
             severity,
@@ -65,7 +75,7 @@ export async function extractEvent(item: FeedItem): Promise<WarEvent | null> {
   }
 
   const legacy = findLocation(item.title, item.summary);
-  if (!legacy) return null;
+  if (!legacy || !isValidCoord(legacy.lat, legacy.lng)) return null;
 
   return buildEvent(item, {
     eventType,

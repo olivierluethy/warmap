@@ -6,6 +6,9 @@ export interface AppSettings {
   sound: boolean; // synthesized alert chime on new incidents
   soundMinSeverity: number; // only chime at/above this severity
   reporter: boolean; // spoken "live reporter" announcements (TTS)
+  // Visualization layers (issue #5.48 — configurable dashboard)
+  showVectors: boolean; // directional origin→target trajectories
+  showLowConfidence: boolean; // approximately-located incidents
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -13,6 +16,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sound: false,
   soundMinSeverity: 5,
   reporter: false,
+  showVectors: true,
+  showLowConfidence: true,
 };
 
 const KEY = "warmap.settings.v1";

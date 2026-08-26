@@ -3,6 +3,16 @@ import { eventStore } from "./event-store";
 import { getLlmStats, hasOpenAIKey } from "./llm-extractor";
 import { parseFeed } from "./rss-parser";
 import { SOURCES, type Source } from "./sources";
+import { getCustomSources } from "./custom-sources";
+
+// Built-in feeds plus any runtime-added custom feeds (issue #5.13). Read fresh
+// each cycle so newly-added sources are picked up without a restart.
+function allSources(): Source[] {
+  const custom = getCustomSources();
+  if (custom.length === 0) return SOURCES;
+  const seen = new Set(SOURCES.map((s) => s.url));
+  return [...SOURCES, ...custom.filter((s) => !seen.has(s.url))];
+}
 
 const FETCH_INTERVAL_MS = 90 * 1000;
 const FETCH_TIMEOUT_MS = 15 * 1000;
@@ -97,11 +107,12 @@ async function fetchOne(source: Source): Promise<number> {
 async function runCycle(): Promise<void> {
   const t0 = Date.now();
   const cycleNo = state.stats.cyclesCompleted + 1;
+  const sources = allSources();
   console.log(
-    `[warmap] cycle #${cycleNo} start :: sources=${SOURCES.length} llm=${hasOpenAIKey() ? "on" : "off"}`,
+    `[warmap] cycle #${cycleNo} start :: sources=${sources.length} llm=${hasOpenAIKey() ? "on" : "off"}`,
   );
 
-  const results = await Promise.allSettled(SOURCES.map(fetchOne));
+  const results = await Promise.allSettled(sources.map(fetchOne));
   const added = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? r.value : 0),
     0,
@@ -150,7 +161,7 @@ export function getFetcherStatus() {
     firstCycleCompleted: state.firstCycleCompleted,
     lastRun: state.lastRun,
     lastError: state.lastError,
-    sources: SOURCES.length,
+    sources: allSources().length,
     llmEnabled: hasOpenAIKey(),
     ...state.stats,
   };

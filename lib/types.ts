@@ -5,6 +5,7 @@ export type EventType =
   | "shelling"
   | "ground"
   | "naval"
+  | "fire"
   | "casualties"
   | "diplomacy"
   | "cyber"
