@@ -36,6 +36,13 @@ export type GtagEventName =
   | "ui_hover_element"
   | "ui_revisit_element"
   | "ui_exploration_pattern"
+  // app shell / navigation controls
+  | "pwa_install_click"
+  | "pwa_installed"
+  | "map_reset_view"
+  | "toggle_fullscreen"
+  | "toggle_feed"
+  | "open_sources_panel"
   // existing CTA buttons
   | "blog_click"
   | "request_access_click"
