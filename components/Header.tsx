@@ -9,8 +9,7 @@ interface Props {
   connection: ConnectionState;
   lastUpdate: number | null;
   totalEvents: number;
-  notificationsOn: boolean;
-  onToggleNotifications: () => void;
+  onOpenSettings: () => void;
 }
 
 function ConnectionBadge({ state }: { state: ConnectionState }) {
@@ -47,8 +46,7 @@ export default function Header({
   connection,
   lastUpdate,
   totalEvents,
-  notificationsOn,
-  onToggleNotifications,
+  onOpenSettings,
 }: Props) {
   const [, tick] = useState(0);
   useEffect(() => {
@@ -101,13 +99,9 @@ export default function Header({
       <div className="pointer-events-auto flex items-center gap-2">
         <InstallButton />
         <button
-          onClick={onToggleNotifications}
-          aria-pressed={notificationsOn}
-          className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium backdrop-blur-xl transition ${
-            notificationsOn
-              ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/15"
-              : "border-white/10 bg-zinc-950/80 text-zinc-300 hover:bg-zinc-900/80"
-          }`}
+          onClick={onOpenSettings}
+          aria-label="Open settings"
+          className="flex items-center gap-2 rounded-xl border border-white/10 bg-zinc-950/80 px-3 py-2 text-xs font-medium text-zinc-300 backdrop-blur-xl transition hover:bg-zinc-900/80"
         >
           <svg
             viewBox="0 0 24 24"
@@ -119,10 +113,10 @@ export default function Header({
             strokeLinejoin="round"
             aria-hidden
           >
-            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+            <circle cx="12" cy="12" r="3" />
           </svg>
-          Alerts {notificationsOn ? "On" : "Off"}
+          Settings
         </button>
       </div>
     </header>

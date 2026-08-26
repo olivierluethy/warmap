@@ -8,7 +8,7 @@ import type {
 } from "leaflet";
 import type { EventType, Mover, WarEvent } from "@/lib/types";
 import { trackEvent } from "@/lib/analytics";
-import { EVENT_LABELS, eventColor, relativeTime } from "./event-style";
+import { EVENT_LABELS, eventColor, relativeTime, severityToSize } from "./event-style";
 
 // Coarse coordinate buckets keep GA cardinality bounded — exact lat/lng would
 // register as a unique value per pan, blowing past GA's per-parameter limits.
@@ -363,8 +363,14 @@ export default function WarMap({
       const count = group.events.length;
 
       const lowConfidence = primary.location.confidence === "low";
+      // Size scales with the group's peak severity (issue #5.35).
+      const peakSeverity = group.events.reduce(
+        (m, e) => Math.max(m, e.severity),
+        0,
+      );
+      const size = severityToSize(peakSeverity);
       const html = `
-        <div class="warmap-marker${lowConfidence ? " is-low-confidence" : ""}" style="--marker-color:${color};">
+        <div class="warmap-marker${lowConfidence ? " is-low-confidence" : ""}" style="--marker-color:${color};width:${size}px;height:${size}px;">
           ${animationLayer(primary.eventType)}
           <span class="warmap-marker-pulse"></span>
           <span class="warmap-marker-dot"></span>
@@ -375,8 +381,8 @@ export default function WarMap({
       const icon = L.divIcon({
         html,
         className: "warmap-divicon",
-        iconSize: [14, 14],
-        iconAnchor: [7, 7],
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2],
       });
 
       if (existing) {
