@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { WarEvent } from "@/lib/types";
 import { trackEvent } from "@/lib/analytics";
 import {
   bucketize,
+  bucketizeRange,
   TIME_WINDOWS,
   windowMs,
   type TimeWindow,
@@ -15,8 +16,17 @@ interface Props {
   window: TimeWindow;
   now: number;
   selectedBucket: number | null;
+  customRange: [number, number] | null;
   onWindowChange: (w: TimeWindow) => void;
   onSelectBucket: (index: number | null) => void;
+  onSetCustomRange: (range: [number, number] | null) => void;
+}
+
+// Format an epoch-ms value for a <input type="datetime-local"> (local time).
+function toLocalInput(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function bucketLabel(startMs: number, endMs: number, span: number): string {
@@ -37,14 +47,29 @@ export default function Timeline({
   window,
   now,
   selectedBucket,
+  customRange,
   onWindowChange,
   onSelectBucket,
+  onSetCustomRange,
 }: Props) {
-  const span = windowMs(window);
-  const buckets = useMemo(
-    () => (now > 0 ? bucketize(events, span, now, 32) : []),
-    [events, span, now],
-  );
+  const [customOpen, setCustomOpen] = useState(false);
+  const [fromStr, setFromStr] = useState("");
+  const [toStr, setToStr] = useState("");
+
+  const span =
+    window === "custom" && customRange
+      ? customRange[1] - customRange[0]
+      : windowMs(window);
+
+  const buckets = useMemo(() => {
+    if (now === 0) return [];
+    if (window === "custom") {
+      return customRange
+        ? bucketizeRange(events, customRange[0], customRange[1], 32)
+        : [];
+    }
+    return bucketize(events, windowMs(window), now, 32);
+  }, [events, window, customRange, now]);
   const max = useMemo(
     () => buckets.reduce((m, b) => Math.max(m, b.count), 0),
     [buckets],
@@ -101,8 +126,63 @@ export default function Timeline({
               {w.label}
             </button>
           ))}
+          <button
+            onClick={() => {
+              setCustomOpen((v) => !v);
+              if (customRange) {
+                setFromStr(toLocalInput(customRange[0]));
+                setToStr(toLocalInput(customRange[1]));
+              }
+            }}
+            aria-expanded={customOpen}
+            className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition ${
+              window === "custom"
+                ? "bg-white/15 text-zinc-50"
+                : "text-zinc-400 hover:text-zinc-100"
+            }`}
+          >
+            Custom
+          </button>
         </div>
       </div>
+
+      {customOpen && (
+        <div className="mb-2 flex flex-wrap items-end gap-2 rounded-lg border border-white/10 bg-black/30 p-2">
+          <label className="flex flex-col gap-0.5 text-[10px] text-zinc-400">
+            From
+            <input
+              type="datetime-local"
+              value={fromStr}
+              onChange={(e) => setFromStr(e.target.value)}
+              className="rounded bg-white/5 px-2 py-1 text-[11px] text-zinc-100 [color-scheme:dark]"
+            />
+          </label>
+          <label className="flex flex-col gap-0.5 text-[10px] text-zinc-400">
+            To
+            <input
+              type="datetime-local"
+              value={toStr}
+              onChange={(e) => setToStr(e.target.value)}
+              className="rounded bg-white/5 px-2 py-1 text-[11px] text-zinc-100 [color-scheme:dark]"
+            />
+          </label>
+          <button
+            onClick={() => {
+              const from = new Date(fromStr).getTime();
+              const to = new Date(toStr).getTime();
+              if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) return;
+              onSelectBucket(null);
+              onSetCustomRange([from, to]);
+              onWindowChange("custom");
+              setCustomOpen(false);
+              trackEvent("set_custom_range", { span_ms: to - from });
+            }}
+            className="rounded-md bg-sky-500/80 px-2.5 py-1 text-[11px] font-medium text-white transition hover:bg-sky-400"
+          >
+            Apply
+          </button>
+        </div>
+      )}
 
       <div className="flex h-10 items-end gap-[2px]" role="group" aria-label="Activity timeline">
         {buckets.map((b, i) => {
@@ -138,7 +218,9 @@ export default function Timeline({
         <span>
           {window === "all"
             ? "full history"
-            : `last ${TIME_WINDOWS.find((w) => w.id === window)?.label}`}
+            : window === "custom"
+              ? "custom range"
+              : `last ${TIME_WINDOWS.find((w) => w.id === window)?.label}`}
         </span>
       </div>
     </div>

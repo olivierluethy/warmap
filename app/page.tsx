@@ -10,7 +10,10 @@ import MapControls from "@/components/MapControls";
 import SourcesPanel from "@/components/SourcesPanel";
 import SettingsPanel from "@/components/SettingsPanel";
 import Timeline from "@/components/Timeline";
+import IncidentDetail from "@/components/IncidentDetail";
+import ReportExport from "@/components/ReportExport";
 import type { WarMapApi } from "@/components/WarMap";
+import type { WarEvent } from "@/lib/types";
 import { useEvents } from "@/components/useEvents";
 import { trackEvent } from "@/lib/analytics";
 import { announce, playAlertSound, primeAudio, stopAnnouncing } from "@/lib/alerts";
@@ -20,7 +23,14 @@ import {
   saveSettings,
   type AppSettings,
 } from "@/lib/settings";
-import { bucketize, filterByWindow, windowMs, type TimeWindow } from "@/lib/timeline";
+import {
+  bucketize,
+  bucketizeRange,
+  filterByRange,
+  filterByWindow,
+  windowMs,
+  type TimeWindow,
+} from "@/lib/timeline";
 
 const WarMap = dynamic(() => import("@/components/WarMap"), {
   ssr: false,
@@ -40,7 +50,10 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [feedOpen, setFeedOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [timeWindow, setTimeWindow] = useState<TimeWindow>("all");
+  const [customRange, setCustomRange] = useState<[number, number] | null>(null);
   const [selectedBucket, setSelectedBucket] = useState<number | null>(null);
   const [now, setNow] = useState(0);
   const seenNotified = useRef<Set<string>>(new Set());
@@ -136,28 +149,58 @@ export default function Home() {
     mapApiRef.current = api;
   }, []);
 
+  const handleOpenDetail = useCallback((e: WarEvent) => {
+    setDetailId(e.id);
+    trackEvent("open_incident_detail", { element_id: e.id, event_type: e.eventType });
+  }, []);
+
+  const handleOpenReport = useCallback(() => {
+    setReportOpen(true);
+    trackEvent("open_report");
+  }, []);
+
   // ── Time filtering ──────────────────────────────────────────────────────
-  const windowEvents = useMemo(
-    () => filterByWindow(events, timeWindow, now),
-    [events, timeWindow, now],
-  );
+  const windowEvents = useMemo(() => {
+    if (timeWindow === "custom") {
+      return customRange
+        ? filterByRange(events, customRange[0], customRange[1])
+        : events;
+    }
+    return filterByWindow(events, timeWindow, now);
+  }, [events, timeWindow, customRange, now]);
 
   // A selected timeline bucket narrows further to that period (issue #5.22).
   const bucketRange = useMemo<[number, number] | null>(() => {
     if (selectedBucket === null || now === 0) return null;
-    const buckets = bucketize(events, windowMs(timeWindow), now, 32);
+    const buckets =
+      timeWindow === "custom"
+        ? customRange
+          ? bucketizeRange(events, customRange[0], customRange[1], 32)
+          : []
+        : bucketize(events, windowMs(timeWindow), now, 32);
     const b = buckets[selectedBucket];
     return b ? [b.start, b.end] : null;
-  }, [selectedBucket, events, timeWindow, now]);
+  }, [selectedBucket, events, timeWindow, customRange, now]);
 
   const visibleEvents = useMemo(() => {
-    if (!bucketRange) return windowEvents;
-    const [start, end] = bucketRange;
-    return windowEvents.filter((e) => {
-      const t = new Date(e.publishedAt).getTime();
-      return t >= start && t <= end;
-    });
-  }, [windowEvents, bucketRange]);
+    let out = windowEvents;
+    if (!settings.showLowConfidence) {
+      out = out.filter((e) => e.location.confidence !== "low");
+    }
+    if (bucketRange) {
+      const [start, end] = bucketRange;
+      out = out.filter((e) => {
+        const t = new Date(e.publishedAt).getTime();
+        return t >= start && t <= end;
+      });
+    }
+    return out;
+  }, [windowEvents, bucketRange, settings.showLowConfidence]);
+
+  const detailEvent = useMemo(
+    () => (detailId ? events.find((e) => e.id === detailId) ?? null : null),
+    [detailId, events],
+  );
 
   // Refit the map when a timeline bucket is selected so the two views stay
   // in sync (issue #5.22). Runs after the filtered set is on the map.
@@ -218,6 +261,7 @@ export default function Home() {
         events={visibleEvents}
         focusedEventId={focusedId}
         highlightedId={latestId}
+        showVectors={settings.showVectors}
         onReady={handleMapReady}
       />
 
@@ -239,6 +283,7 @@ export default function Home() {
       <MapControls
         onResetView={handleResetView}
         onOpenSources={handleOpenSources}
+        onExport={handleOpenReport}
       />
 
       <Timeline
@@ -246,8 +291,10 @@ export default function Home() {
         window={timeWindow}
         now={now}
         selectedBucket={selectedBucket}
+        customRange={customRange}
         onWindowChange={setTimeWindow}
         onSelectBucket={setSelectedBucket}
+        onSetCustomRange={setCustomRange}
       />
 
       <button
@@ -269,6 +316,20 @@ export default function Home() {
         onToggleNotifications={handleToggleNotifications}
       />
 
+      <IncidentDetail
+        event={detailEvent}
+        allEvents={events}
+        onClose={() => setDetailId(null)}
+        onFocus={handleFocus}
+      />
+
+      <ReportExport
+        open={reportOpen}
+        events={visibleEvents}
+        window={timeWindow}
+        onClose={() => setReportOpen(false)}
+      />
+
       <div
         className={`absolute right-0 top-0 z-[550] h-full w-[360px] max-w-[92vw] transform transition-transform duration-300 ease-out ${
           feedOpen ? "translate-x-0" : "translate-x-full"
@@ -277,15 +338,7 @@ export default function Home() {
         <Sidebar
           events={visibleEvents}
           latestId={latestId}
-          onFocus={(id) => {
-            handleFocus(id);
-            if (
-              typeof window !== "undefined" &&
-              !window.matchMedia("(min-width: 768px)").matches
-            ) {
-              setFeedOpen(false);
-            }
-          }}
+          onOpenDetail={handleOpenDetail}
         />
       </div>
     </main>

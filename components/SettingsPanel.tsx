@@ -164,6 +164,26 @@ export default function SettingsPanel({
             disabled={!ttsOk}
             onChange={() => onChange({ reporter: !settings.reporter })}
           />
+
+          <div className="pt-3 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+            Map layers
+          </div>
+
+          <Toggle
+            label="Directional trajectories"
+            description="Show origin → target vectors for missiles, drones, aircraft, ships and troop movements."
+            checked={settings.showVectors}
+            onChange={() => onChange({ showVectors: !settings.showVectors })}
+          />
+
+          <Toggle
+            label="Approximate incidents"
+            description="Show incidents whose location could only be resolved to low confidence (dimmed on the map)."
+            checked={settings.showLowConfidence}
+            onChange={() =>
+              onChange({ showLowConfidence: !settings.showLowConfidence })
+            }
+          />
         </div>
 
         <div className="border-t border-white/10 px-5 py-3 text-[11px] text-zinc-500">

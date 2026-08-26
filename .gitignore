@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Runtime-managed custom RSS sources (issue #5.13)
+/.data/custom-sources.json

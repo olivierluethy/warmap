@@ -10,6 +10,7 @@ const LEGEND_ORDER: EventType[] = [
   "shelling",
   "ground",
   "naval",
+  "fire",
   "casualties",
   "diplomacy",
   "humanitarian",

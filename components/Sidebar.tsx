@@ -9,7 +9,7 @@ import { EVENT_COLORS, EVENT_LABELS, eventColor, relativeTime } from "./event-st
 interface Props {
   events: WarEvent[];
   latestId: string | null;
-  onFocus: (id: string) => void;
+  onOpenDetail: (event: WarEvent) => void;
 }
 
 const FILTER_TYPES: Array<EventType | "all"> = [
@@ -20,12 +20,13 @@ const FILTER_TYPES: Array<EventType | "all"> = [
   "shelling",
   "ground",
   "naval",
+  "fire",
   "casualties",
   "diplomacy",
   "humanitarian",
 ];
 
-export default function Sidebar({ events, latestId, onFocus }: Props) {
+export default function Sidebar({ events, latestId, onOpenDetail }: Props) {
   const [filter, setFilter] = useState<EventType | "all">("all");
   const [query, setQuery] = useState("");
 
@@ -105,7 +106,7 @@ export default function Sidebar({ events, latestId, onFocus }: Props) {
       element_id: e.id,
       surface: "sidebar_event_list",
     });
-    onFocus(e.id);
+    onOpenDetail(e);
   };
 
   const filtered = useMemo(() => {
