@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ConnectionState } from "./useEvents";
 import { relativeTime } from "./event-style";
+import InstallButton from "./InstallButton";
 
 interface Props {
   connection: ConnectionState;
@@ -98,6 +99,7 @@ export default function Header({
       </div>
 
       <div className="pointer-events-auto flex items-center gap-2">
+        <InstallButton />
         <button
           onClick={onToggleNotifications}
           aria-pressed={notificationsOn}

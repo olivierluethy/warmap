@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Map as LeafletMap,
   Marker as LeafletMarker,
@@ -175,18 +175,29 @@ function buildPopup(group: LocationGroup): string {
   `;
 }
 
+export interface WarMapApi {
+  /** Fit the viewport to every incident (or the default view when empty). */
+  resetView: () => void;
+}
+
 interface Props {
   events: WarEvent[];
   focusedEventId: string | null;
   highlightedId: string | null;
   onMarkerHover?: (eventId: string | null) => void;
+  onReady?: (api: WarMapApi) => void;
 }
+
+// Default framing used on load and when there are no incidents to fit.
+const DEFAULT_CENTER: [number, number] = [30, 25];
+const DEFAULT_ZOOM = 3;
 
 export default function WarMap({
   events,
   focusedEventId,
   highlightedId,
   onMarkerHover,
+  onReady,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -200,6 +211,35 @@ export default function WarMap({
   const [mapReady, setMapReady] = useState(false);
 
   const groups = useMemo(() => groupByLocation(events), [events]);
+  // Latest groups kept in a ref so the stable resetView callback can read the
+  // current incident set without being re-created on every data update.
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
+
+  // Reset / fit-to-incidents. Stable identity so onReady fires only once.
+  const resetView = useCallback(() => {
+    const map = mapRef.current;
+    const L = leafletRef.current;
+    if (!map || !L) return;
+    const pts = groupsRef.current.map(
+      (g) => [g.lat, g.lng] as [number, number],
+    );
+    if (pts.length === 0) {
+      map.flyTo(DEFAULT_CENTER, DEFAULT_ZOOM, { duration: 0.8 });
+      return;
+    }
+    map.flyToBounds(L.latLngBounds(pts), {
+      padding: [64, 64],
+      maxZoom: 6,
+      duration: 0.9,
+    });
+  }, []);
+
+  // Hand the imperative API to the parent once the map is live. `onReady` is a
+  // stable useCallback from the parent, so this fires once.
+  useEffect(() => {
+    if (mapReady) onReady?.({ resetView });
+  }, [mapReady, resetView, onReady]);
 
   // Init map once. `setMapReady(true)` is the signal the sync effect below
   // waits for — without it, any events that were already in state when the
@@ -213,8 +253,8 @@ export default function WarMap({
       leafletRef.current = L;
 
       const map = L.map(containerRef.current, {
-        center: [30, 25],
-        zoom: 3,
+        center: DEFAULT_CENTER,
+        zoom: DEFAULT_ZOOM,
         minZoom: 3,
         maxZoom: 12,
         // Hard stop at the world bounds. Antarctica/Arctic are clipped to the
