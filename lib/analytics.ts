@@ -43,6 +43,11 @@ export type GtagEventName =
   | "toggle_fullscreen"
   | "toggle_feed"
   | "open_sources_panel"
+  | "open_settings"
+  | "toggle_sound"
+  | "toggle_reporter"
+  | "select_time_window"
+  | "timeline_bucket_click"
   // existing CTA buttons
   | "blog_click"
   | "request_access_click"

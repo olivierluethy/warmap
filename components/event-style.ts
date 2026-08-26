@@ -32,6 +32,13 @@ export function eventColor(e: WarEvent): string {
   return EVENT_COLORS[e.eventType] ?? EVENT_COLORS.other;
 }
 
+// Marker diameter scales with severity so escalating incidents read as more
+// intense at a glance (issue #5.35). Clamped 0–10 → 14–30px.
+export function severityToSize(severity: number): number {
+  const s = Math.max(0, Math.min(10, severity));
+  return Math.round(14 + s * 1.6);
+}
+
 export function relativeTime(iso: string): string {
   const t = new Date(iso).getTime();
   if (isNaN(t)) return "";
