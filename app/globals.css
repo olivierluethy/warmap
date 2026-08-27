@@ -322,3 +322,194 @@ body {
   box-shadow: 0 0 6px var(--marker-color, #ef4444);
   opacity: 0.8;
 }
+
+/* ── Travelling projectile (issues #2, #6, #7, #12) ─────────────────────────
+   A recognizable object that a rAF loop moves along its trajectory. The body
+   is rotated to face travel direction (--angle set on it by the map), the trail
+   streaks out behind it. */
+.warmap-projectile {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  will-change: opacity;
+}
+.warmap-projectile-body {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(var(--angle, 0deg));
+}
+.warmap-projectile-body svg {
+  width: 20px;
+  height: 20px;
+  overflow: visible;
+  fill: var(--proj-color, #f97316);
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 1.1;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 6px var(--proj-color, #f97316));
+}
+/* Drone rotor rings read as hollow, not solid bodies. */
+.warmap-projectile-body svg circle { fill: rgba(0, 0, 0, 0.35); }
+.warmap-projectile-trail {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 34px;
+  height: 3px;
+  margin-top: -1.5px;
+  margin-left: -34px;
+  transform-origin: right center;
+  transform: rotate(var(--angle, 0deg));
+  background: linear-gradient(to left, var(--proj-color, #f97316), transparent);
+  opacity: 0.7;
+  border-radius: 999px;
+  filter: drop-shadow(0 0 4px var(--proj-color, #f97316));
+}
+
+/* Impact — replayed each time the projectile reaches its target (issues #4, #5).
+   `.is-on` is toggled by the animation loop to restart these one-shot effects. */
+.warmap-impact { position: relative; width: 10px; height: 10px; }
+.warmap-impact-flash,
+.warmap-impact-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 999px;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.2);
+}
+.warmap-impact-flash {
+  width: 26px;
+  height: 26px;
+  background: radial-gradient(circle, #fff, var(--impact-color, #f97316) 40%, transparent 70%);
+}
+.warmap-impact-ring {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--impact-color, #f97316);
+  box-shadow: 0 0 10px var(--impact-color, #f97316);
+}
+.warmap-impact.is-on .warmap-impact-flash { animation: warmapImpactFlash 700ms ease-out; }
+.warmap-impact.is-on .warmap-impact-ring { animation: warmapImpactRing 900ms ease-out; }
+.warmap-impact.is-on .warmap-impact-ring.r2 { animation-delay: 120ms; }
+@keyframes warmapImpactFlash {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
+  15% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
+}
+@keyframes warmapImpactRing {
+  0% { opacity: 0.9; transform: translate(-50%, -50%) scale(0.2); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(3.4); }
+}
+
+/* Explosion flash + shockwave for airstrike / missile / shelling markers
+   (issues #4, #5, #13) */
+.warmap-anim-flash {
+  width: 20px;
+  height: 20px;
+  margin-left: -10px;
+  margin-top: -10px;
+  border-radius: 999px;
+  background: radial-gradient(circle, #fff, var(--marker-color, #ef4444) 45%, transparent 72%);
+  opacity: 0;
+  animation: warmapFlash 2.4s ease-out infinite;
+}
+@keyframes warmapFlash {
+  0% { opacity: 0; transform: scale(0.2); }
+  6% { opacity: 1; transform: scale(1.1); }
+  22% { opacity: 0; transform: scale(1.4); }
+  100% { opacity: 0; }
+}
+.warmap-anim-shock {
+  width: 24px;
+  height: 24px;
+  margin-left: -12px;
+  margin-top: -12px;
+  border-radius: 999px;
+  border: 2px solid var(--marker-color, #ef4444);
+  opacity: 0;
+  animation: warmapShock 2.4s ease-out infinite;
+}
+@keyframes warmapShock {
+  0% { transform: scale(0.2); opacity: 0.9; }
+  60% { opacity: 0; }
+  100% { transform: scale(3.2); opacity: 0; }
+}
+
+/* Drone marker: a hovering quad-rotor rather than a circle (issue #6) */
+.warmap-anim-drone {
+  width: 34px;
+  height: 34px;
+  margin-left: -17px;
+  margin-top: -17px;
+  animation: warmapDroneHover 3.4s ease-in-out infinite;
+}
+.warmap-anim-drone line,
+.warmap-anim-drone rect {
+  stroke: var(--marker-color, #eab308);
+  stroke-width: 2;
+  fill: none;
+  filter: drop-shadow(0 0 3px var(--marker-color, #eab308));
+}
+.warmap-anim-drone .rotor {
+  fill: rgba(234, 179, 8, 0.18);
+  stroke: var(--marker-color, #eab308);
+  stroke-width: 1.4;
+  stroke-dasharray: 3 4;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: warmapRotor 0.45s linear infinite;
+}
+@keyframes warmapDroneHover {
+  0%, 100% { transform: translateY(-2px); }
+  50% { transform: translateY(2px); }
+}
+@keyframes warmapRotor {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Ground marker: a column of chevrons lighting up in sequence, reading as
+   advancing units (issue #7) */
+.warmap-anim-advance {
+  width: 40px;
+  height: 18px;
+  margin-left: -20px;
+  margin-top: -9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+.warmap-advance-chevron {
+  width: 6px;
+  height: 6px;
+  border-top: 2px solid var(--marker-color, #dc2626);
+  border-right: 2px solid var(--marker-color, #dc2626);
+  transform: rotate(45deg);
+  opacity: 0.2;
+  filter: drop-shadow(0 0 2px var(--marker-color, #dc2626));
+  animation: warmapAdvance 1.4s ease-in-out infinite;
+}
+.warmap-advance-chevron.c2 { animation-delay: 0.18s; }
+.warmap-advance-chevron.c3 { animation-delay: 0.36s; }
+@keyframes warmapAdvance {
+  0%, 100% { opacity: 0.2; }
+  40% { opacity: 1; }
+}
+
+/* Respect reduced-motion: keep positions/glyphs, drop the looping motion. */
+@media (prefers-reduced-motion: reduce) {
+  .warmap-anim-flash,
+  .warmap-anim-shock,
+  .warmap-anim-drone,
+  .warmap-advance-chevron,
+  .warmap-projectile-trail,
+  .warmap-marker-pulse {
+    animation: none;
+  }
+}
