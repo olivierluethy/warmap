@@ -88,24 +88,66 @@ function vectorStrokeColor(m: Mover): string {
   }
 }
 
+// How long a projectile takes to travel its whole trajectory once. Fast, direct
+// movers (missiles) cross quickly; loitering drones and ground columns crawl —
+// so the motion itself communicates what kind of event it is (issues #6, #7, #8).
+function moverTravelMs(m: Mover): number {
+  switch (m) {
+    case "missile": return 2600;
+    case "aircraft": return 3600;
+    case "drone": return 6200;
+    case "ship": return 9000;
+    case "troops": return 11000;
+    default: return 4600;
+  }
+}
+
+// The projectile body — a recognizable object per mover, not a dot (issues #2,
+// #6, #7). Drawn on a 24×24 viewBox pointing to the +x axis; the marker rotates
+// it to face the direction of travel. Filled shapes so the glow reads at size.
+function projectileInnerSvg(m: Mover): string {
+  switch (m) {
+    case "missile":
+      return '<path d="M2 12h10"/><path d="M11 8c5 0 8 2 9 4-1 2-4 4-9 4z"/><path d="M5 9 2 6 M5 15 2 18"/>';
+    case "aircraft":
+      return '<path d="M22 12 4 5l4 7-4 7z"/>';
+    case "drone":
+      return '<line x1="7" y1="7" x2="17" y2="17"/><line x1="17" y1="7" x2="7" y2="17"/><rect x="10" y="10" width="4" height="4" rx="1"/><circle cx="7" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><circle cx="7" cy="17" r="3"/><circle cx="17" cy="17" r="3"/>';
+    case "ship":
+      return '<path d="M3 14h18l-3 5H6z"/><path d="M8 14V7h6l3 7"/>';
+    case "troops":
+      return '<path d="M4 12h5 M6 8l4 4-4 4"/><path d="M13 12h5 M15 8l4 4-4 4"/>';
+    default:
+      return '<circle cx="12" cy="12" r="5"/>';
+  }
+}
+
 // Emits the type-specific SVG/CSS layer that sits behind the normal pulse dot.
 function animationLayer(type: EventType): string {
   switch (type) {
     case "airstrike":
     case "missile":
-      // Streak + explosion burst (issue #5.33).
+      // Incoming streak, then a bright flash + expanding shockwave ring so the
+      // impact reads as a real explosion, not a pulse (issues #4, #5, #13).
       return `
         <svg class="warmap-anim warmap-anim-streak" viewBox="0 0 120 120" aria-hidden="true">
           <line x1="100" y1="20" x2="60" y2="60" />
         </svg>
+        <span class="warmap-anim warmap-anim-flash"></span>
+        <span class="warmap-anim warmap-anim-shock"></span>
         <span class="warmap-anim warmap-anim-burst"></span>`;
     case "fire":
       // Flickering fire glow (issue #5.34).
       return `<span class="warmap-anim warmap-anim-fire"></span>`;
     case "drone":
+      // A recognizable quad-rotor that hovers and drifts, with spinning rotors
+      // — an object, not a circle (issue #6).
       return `
-        <svg class="warmap-anim warmap-anim-orbit" viewBox="0 0 42 42" aria-hidden="true">
-          <circle cx="38" cy="21" r="2" />
+        <svg class="warmap-anim warmap-anim-drone" viewBox="0 0 40 40" aria-hidden="true">
+          <line x1="12" y1="12" x2="28" y2="28" /><line x1="28" y1="12" x2="12" y2="28" />
+          <rect x="16" y="16" width="8" height="8" rx="1.5" />
+          <circle class="rotor" cx="12" cy="12" r="4.5" /><circle class="rotor" cx="28" cy="12" r="4.5" />
+          <circle class="rotor" cx="12" cy="28" r="4.5" /><circle class="rotor" cx="28" cy="28" r="4.5" />
         </svg>`;
     case "naval":
       return `
@@ -113,12 +155,18 @@ function animationLayer(type: EventType): string {
         <span class="warmap-anim warmap-anim-wave delay-1"></span>
         <span class="warmap-anim warmap-anim-wave delay-2"></span>`;
     case "shelling":
-      return `<span class="warmap-anim warmap-anim-burst"></span>`;
-    case "ground":
       return `
-        <svg class="warmap-anim warmap-anim-chevron" viewBox="0 0 36 36" aria-hidden="true">
-          <path d="M18 4 L30 18 L24 18 L24 32 L12 32 L12 18 L6 18 Z" />
-        </svg>`;
+        <span class="warmap-anim warmap-anim-shock"></span>
+        <span class="warmap-anim warmap-anim-burst"></span>`;
+    case "ground":
+      // A column of chevrons marching forward, reading as advancing units
+      // rather than a spinning marker (issue #7).
+      return `
+        <span class="warmap-anim warmap-anim-advance" aria-hidden="true">
+          <i class="warmap-advance-chevron c1"></i>
+          <i class="warmap-advance-chevron c2"></i>
+          <i class="warmap-advance-chevron c3"></i>
+        </span>`;
     default:
       return "";
   }
@@ -219,6 +267,23 @@ export default function WarMap({
   const vectorsRef = useRef<Map<string, { line: LeafletPolyline; origin: LeafletMarker }>>(
     new Map(),
   );
+  // Live projectiles animated along their trajectory by a single rAF loop.
+  const projectilesRef = useRef<
+    Map<
+      string,
+      {
+        marker: LeafletMarker;
+        impact: LeafletMarker;
+        origin: [number, number];
+        target: [number, number];
+        travelMs: number;
+        pauseMs: number;
+        start: number;
+        impacted: boolean;
+      }
+    >
+  >(new Map());
+  const rafRef = useRef<number | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const hoverCbRef = useRef(onMarkerHover);
   hoverCbRef.current = onMarkerHover;
@@ -344,6 +409,10 @@ export default function WarMap({
     })();
     return () => {
       cancelled = true;
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
       if (mapRef.current) {
         const timers =
           (mapRef.current as unknown as {
@@ -356,6 +425,7 @@ export default function WarMap({
       leafletRef.current = null;
       markersRef.current.clear();
       vectorsRef.current.clear();
+      projectilesRef.current.clear();
       setMapReady(false);
     };
   }, []);
@@ -488,6 +558,13 @@ export default function WarMap({
     const map = mapRef.current;
     if (!L || !map) return;
 
+    // Honour the OS reduced-motion setting: keep the static trajectory line and
+    // origin marker, but skip the travelling projectile and impact loop.
+    const reduceMotion =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
     const seen = new Set<string>();
     // When the vector layer is toggled off, treat the active set as empty so
     // the removal pass below clears any existing trajectories.
@@ -499,7 +576,12 @@ export default function WarMap({
 
       const { origin, target, mover } = ev.vector!;
       const moverClass = moverClassName(mover);
+      const stroke = vectorStrokeColor(mover);
 
+      // Explicit path options (not just a CSS class): the map is canvas-rendered
+      // (preferCanvas), where CSS on the SVG path does not apply, so the colour
+      // and dash must be set here for the trajectory to stay clearly visible
+      // (issue #3).
       const line = L.polyline(
         [
           [origin.lat, origin.lng],
@@ -507,6 +589,10 @@ export default function WarMap({
         ],
         {
           className: `warmap-vector ${moverClass}`,
+          color: stroke,
+          weight: 1.8,
+          opacity: 0.85,
+          dashArray: "6 10",
           interactive: false,
           smoothFactor: 1.5,
           noClip: false,
@@ -514,7 +600,7 @@ export default function WarMap({
       ).addTo(map);
 
       const originIcon = L.divIcon({
-        html: `<div class="warmap-origin" style="--marker-color:${vectorStrokeColor(mover)};"></div>`,
+        html: `<div class="warmap-origin" style="--marker-color:${stroke};"></div>`,
         className: "warmap-divicon",
         iconSize: [12, 12],
         iconAnchor: [6, 6],
@@ -525,6 +611,60 @@ export default function WarMap({
       }).addTo(map);
 
       vectorsRef.current.set(ev.id, { line, origin: originMarker });
+
+      if (reduceMotion) continue;
+
+      // Travelling projectile — an object that follows the trajectory from
+      // origin to target and loops (issues #2, #6, #7, #12).
+      const projectileIcon = L.divIcon({
+        html: `<div class="warmap-projectile" style="--proj-color:${stroke};"><span class="warmap-projectile-trail"></span><span class="warmap-projectile-body"><svg viewBox="0 0 24 24" aria-hidden="true">${projectileInnerSvg(mover)}</svg></span></div>`,
+        className: "warmap-divicon",
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
+      });
+      const projectile = L.marker([origin.lat, origin.lng], {
+        icon: projectileIcon,
+        interactive: false,
+        zIndexOffset: 500,
+        keyboard: false,
+      }).addTo(map);
+
+      // Impact effect placed at the target, replayed each time the projectile
+      // arrives (issues #4, #5).
+      const impactIcon = L.divIcon({
+        html: `<div class="warmap-impact" style="--impact-color:${stroke};"><span class="warmap-impact-flash"></span><span class="warmap-impact-ring"></span><span class="warmap-impact-ring r2"></span></div>`,
+        className: "warmap-divicon",
+        iconSize: [10, 10],
+        iconAnchor: [5, 5],
+      });
+      const impact = L.marker([target.lat, target.lng], {
+        icon: impactIcon,
+        interactive: false,
+        zIndexOffset: 450,
+        keyboard: false,
+      }).addTo(map);
+
+      // Orient the projectile body along the travel direction. The bearing
+      // between two layer points is invariant to zoom (uniform scale) and pan,
+      // so it is computed once here.
+      const a = map.latLngToLayerPoint([origin.lat, origin.lng]);
+      const b = map.latLngToLayerPoint([target.lat, target.lng]);
+      const angle = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+      const body = projectile
+        .getElement()
+        ?.querySelector<HTMLElement>(".warmap-projectile-body");
+      if (body) body.style.setProperty("--angle", `${angle}deg`);
+
+      projectilesRef.current.set(ev.id, {
+        marker: projectile,
+        impact,
+        origin: [origin.lat, origin.lng],
+        target: [target.lat, target.lng],
+        travelMs: moverTravelMs(mover),
+        pauseMs: 1400,
+        start: performance.now(),
+        impacted: false,
+      });
     }
 
     for (const [id, pair] of vectorsRef.current.entries()) {
@@ -534,6 +674,61 @@ export default function WarMap({
         vectorsRef.current.delete(id);
       }
     }
+    for (const [id, p] of projectilesRef.current.entries()) {
+      if (!seen.has(id)) {
+        p.marker.remove();
+        p.impact.remove();
+        projectilesRef.current.delete(id);
+      }
+    }
+
+    // Single rAF loop drives every projectile. Cancelled on cleanup and
+    // restarted on each run so it never double-schedules.
+    const tick = (now: number) => {
+      for (const p of projectilesRef.current.values()) {
+        const cycle = p.travelMs + p.pauseMs;
+        const phase = (now - p.start) % cycle;
+        const el = p.marker.getElement();
+        if (phase <= p.travelMs) {
+          const t = phase / p.travelMs;
+          p.marker.setLatLng([
+            p.origin[0] + (p.target[0] - p.origin[0]) * t,
+            p.origin[1] + (p.target[1] - p.origin[1]) * t,
+          ]);
+          // Fade in on launch, fade out just before impact.
+          if (el)
+            el.style.opacity =
+              t < 0.06 ? String(t / 0.06) : t > 0.94 ? String((1 - t) / 0.06) : "1";
+          p.impacted = false;
+        } else {
+          if (el) el.style.opacity = "0";
+          if (!p.impacted) {
+            p.impacted = true;
+            const host = p.impact
+              .getElement()
+              ?.querySelector<HTMLElement>(".warmap-impact");
+            if (host) {
+              // Restart the one-shot impact animation.
+              host.classList.remove("is-on");
+              void host.offsetWidth;
+              host.classList.add("is-on");
+            }
+          }
+        }
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    if (rafRef.current === null && projectilesRef.current.size > 0) {
+      rafRef.current = requestAnimationFrame(tick);
+    }
+
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
   }, [vectored, mapReady, showVectors]);
 
   // Fly to focused event
