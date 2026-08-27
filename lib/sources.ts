@@ -161,4 +161,24 @@ export const SOURCES: Source[] = [
     url: "https://npasyria.com/en/feed/",
     category: "conflict",
   },
+  // ── Under-represented regions (issues #20, #29): strengthen Africa and
+  // wider Middle East coverage so those developments aren't overlooked.
+  {
+    id: "africanews",
+    name: "Africanews",
+    url: "https://www.africanews.com/feed/rss",
+    category: "world",
+  },
+  {
+    id: "middle-east-eye",
+    name: "Middle East Eye",
+    url: "https://www.middleeasteye.net/rss",
+    category: "conflict",
+  },
+  {
+    id: "sudan-tribune",
+    name: "Sudan Tribune",
+    url: "https://sudantribune.com/feed/",
+    category: "conflict",
+  },
 ];

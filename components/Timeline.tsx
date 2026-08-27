@@ -20,7 +20,19 @@ interface Props {
   onWindowChange: (w: TimeWindow) => void;
   onSelectBucket: (index: number | null) => void;
   onSetCustomRange: (range: [number, number] | null) => void;
+  // ── Historical playback (issues #16–19, #30–33) ──
+  playFrac: number | null;
+  playing: boolean;
+  playSpeed: number;
+  playheadMs: number | null;
+  onTogglePlay: () => void;
+  onScrub: (frac: number) => void;
+  onStepPlayback: (dir: -1 | 1) => void;
+  onExitPlayback: () => void;
+  onSpeedChange: (s: number) => void;
 }
+
+const SPEEDS = [0.5, 1, 2, 4];
 
 // Format an epoch-ms value for a <input type="datetime-local"> (local time).
 function toLocalInput(ms: number): string {
@@ -40,8 +52,24 @@ function bucketLabel(startMs: number, endMs: number, span: number): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+// Timestamp shown next to the playhead while scrubbing/playing.
+function playheadLabel(ms: number, span: number): string {
+  const d = new Date(ms);
+  if (span <= 24 * 60 * 60 * 1000) {
+    return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 // Interactive timeline (issue #5.19–22): activity histogram over the selected
-// window, with preset windows and click-to-filter buckets.
+// window, with preset windows, click-to-filter buckets, and historical
+// playback — play / pause / scrub / step through the sequence of events
+// (issues #16–19, #30–33).
 export default function Timeline({
   events,
   window,
@@ -51,6 +79,15 @@ export default function Timeline({
   onWindowChange,
   onSelectBucket,
   onSetCustomRange,
+  playFrac,
+  playing,
+  playSpeed,
+  playheadMs,
+  onTogglePlay,
+  onScrub,
+  onStepPlayback,
+  onExitPlayback,
+  onSpeedChange,
 }: Props) {
   const [customOpen, setCustomOpen] = useState(false);
   const [fromStr, setFromStr] = useState("");
@@ -79,6 +116,8 @@ export default function Timeline({
     [buckets],
   );
 
+  const playbackOn = playFrac !== null;
+
   const onWindow = (w: TimeWindow) => {
     if (w === window) return;
     onSelectBucket(null);
@@ -101,15 +140,22 @@ export default function Timeline({
     <div className="pointer-events-auto absolute bottom-4 left-1/2 z-[500] w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-white/10 bg-zinc-950/80 px-3 py-2.5 backdrop-blur-xl shadow-xl shadow-black/40">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-          Activity
-          {selectedBucket !== null && buckets[selectedBucket] && (
+          {playbackOn ? "Playback" : "Activity"}
+          {playbackOn && playheadMs !== null ? (
             <span className="ml-2 normal-case tracking-normal text-sky-300">
-              {bucketLabel(
-                buckets[selectedBucket].start,
-                buckets[selectedBucket].end,
-                span,
-              )}
+              {playheadLabel(playheadMs, span)}
             </span>
+          ) : (
+            selectedBucket !== null &&
+            buckets[selectedBucket] && (
+              <span className="ml-2 normal-case tracking-normal text-sky-300">
+                {bucketLabel(
+                  buckets[selectedBucket].start,
+                  buckets[selectedBucket].end,
+                  span,
+                )}
+              </span>
+            )
           )}
         </div>
         <div className="flex items-center gap-1">
@@ -184,10 +230,13 @@ export default function Timeline({
         </div>
       )}
 
-      <div className="flex h-10 items-end gap-[2px]" role="group" aria-label="Activity timeline">
+      <div className="relative flex h-10 items-end gap-[2px]" role="group" aria-label="Activity timeline">
         {buckets.map((b, i) => {
           const h = max > 0 ? Math.max(2, Math.round((b.count / max) * 40)) : 2;
-          const active = selectedBucket === null || selectedBucket === i;
+          const selectActive = selectedBucket === null || selectedBucket === i;
+          // While playing, dim buckets that lie ahead of the playhead so the
+          // histogram stays visually synced with the map (issue #19).
+          const ahead = playheadMs !== null && b.start > playheadMs;
           const empty = b.count === 0;
           return (
             <button
@@ -202,15 +251,102 @@ export default function Timeline({
                 className={`absolute bottom-0 left-0 right-0 rounded-sm transition-all ${
                   empty
                     ? "bg-white/5"
-                    : active
+                    : selectActive
                       ? "bg-sky-400/70 group-hover:bg-sky-300"
                       : "bg-sky-400/25"
-                }`}
+                } ${ahead ? "opacity-25" : ""}`}
                 style={{ height: h }}
               />
             </button>
           );
         })}
+
+        {/* Playhead marker (issue #19) */}
+        {playbackOn && playFrac !== null && (
+          <span
+            className="pointer-events-none absolute bottom-0 top-0 z-10 w-px bg-sky-300 shadow-[0_0_6px_#7dd3fc]"
+            style={{ left: `${(playFrac * 100).toFixed(2)}%` }}
+          >
+            <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rounded-full bg-sky-300" />
+          </span>
+        )}
+      </div>
+
+      {/* ── Playback controls (issues #16–19, #30–33) ── */}
+      <div className="mt-2 flex items-center gap-2 border-t border-white/5 pt-2">
+        <button
+          onClick={() => onStepPlayback(-1)}
+          aria-label="Step backward"
+          className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100"
+        >
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden>
+            <path d="M6 5h2v14H6zM20 5v14l-11-7z" />
+          </svg>
+        </button>
+        <button
+          onClick={onTogglePlay}
+          aria-label={playing ? "Pause playback" : "Play history"}
+          className="flex h-7 w-7 items-center justify-center rounded-md bg-sky-500/80 text-white transition hover:bg-sky-400"
+        >
+          {playing ? (
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden>
+              <path d="M6 5h4v14H6zM14 5h4v14h-4z" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden>
+              <path d="M7 5v14l12-7z" />
+            </svg>
+          )}
+        </button>
+        <button
+          onClick={() => onStepPlayback(1)}
+          aria-label="Step forward"
+          className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100"
+        >
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden>
+            <path d="M16 5h2v14h-2zM4 5l11 7-11 7z" />
+          </svg>
+        </button>
+
+        <input
+          type="range"
+          min={0}
+          max={1000}
+          step={1}
+          value={Math.round((playFrac ?? 0) * 1000)}
+          onChange={(e) => onScrub(Number(e.target.value) / 1000)}
+          aria-label="Playback position"
+          className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-white/10 accent-sky-400"
+        />
+
+        <div className="flex items-center gap-0.5">
+          {SPEEDS.map((s) => (
+            <button
+              key={s}
+              onClick={() => onSpeedChange(s)}
+              className={`rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition ${
+                playSpeed === s
+                  ? "bg-white/15 text-zinc-50"
+                  : "text-zinc-500 hover:text-zinc-200"
+              }`}
+            >
+              {s}×
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={onExitPlayback}
+          disabled={!playbackOn}
+          aria-label="Return to live"
+          className={`rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition ${
+            playbackOn
+              ? "text-rose-300 hover:bg-rose-500/15"
+              : "text-emerald-400/80"
+          }`}
+        >
+          {playbackOn ? "Live ↩" : "● Live"}
+        </button>
       </div>
 
       <div className="mt-1 flex items-center justify-between text-[10px] text-zinc-500">
