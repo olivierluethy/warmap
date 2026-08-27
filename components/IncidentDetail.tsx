@@ -50,6 +50,13 @@ export default function IncidentDetail({
     [atLocation],
   );
 
+  // Coverage-gap signal (issue #24): a notable event corroborated by only a
+  // single source is flagged so it can be investigated / verified further.
+  const coverageGap = useMemo(
+    () => event !== null && sources.size <= 1 && event.severity >= 4,
+    [event, sources],
+  );
+
   if (!event) return null;
   const color = eventColor(event);
 
@@ -85,6 +92,14 @@ export default function IncidentDetail({
               {event.location.confidence !== "high" && (
                 <span className="text-[10px] uppercase tracking-wider text-amber-400/80">
                   {event.location.confidence} confidence
+                </span>
+              )}
+              {coverageGap && (
+                <span
+                  className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-300"
+                  title="Reported by a single source — corroborate before relying on it"
+                >
+                  Single-source
                 </span>
               )}
             </div>
@@ -167,6 +182,13 @@ export default function IncidentDetail({
               {sources.size > 1 ? ` · ${sources.size} sources` : ""}
             </span>
           </div>
+
+          {coverageGap && (
+            <div className="mb-2 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-[11px] leading-relaxed text-amber-200/90">
+              Limited coverage — this event is currently backed by a single
+              source. Treat as unconfirmed and look for corroborating reports.
+            </div>
+          )}
 
           <ul className="space-y-1">
             {atLocation.map((e) => {

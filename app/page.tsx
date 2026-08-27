@@ -43,6 +43,12 @@ const WarMap = dynamic(() => import("@/components/WarMap"), {
 
 const REPORTER_MIN_SEVERITY = 6; // "breaking / critical" threshold for TTS
 
+// Base wall-clock time to sweep the whole selected window once during playback,
+// before the speed multiplier (issues #16–19). 22s at 1× feels deliberate
+// without dragging on a 30-day window.
+const BASE_PLAYBACK_MS = 22_000;
+const PLAYBACK_STEPS = 32; // matches the timeline bucket count for step nudges
+
 export default function Home() {
   const { events, connection, lastUpdate, latestId, status } = useEvents();
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -56,6 +62,11 @@ export default function Home() {
   const [customRange, setCustomRange] = useState<[number, number] | null>(null);
   const [selectedBucket, setSelectedBucket] = useState<number | null>(null);
   const [now, setNow] = useState(0);
+  // Historical playback: a normalized playhead (0–1) across the current window.
+  // `null` means live mode (no playback). (issues #16–19, #30–33)
+  const [playFrac, setPlayFrac] = useState<number | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [playSpeed, setPlaySpeed] = useState(1);
   const seenNotified = useRef<Set<string>>(new Set());
   const didBootstrap = useRef(false);
   const mapApiRef = useRef<WarMapApi | null>(null);
@@ -182,20 +193,69 @@ export default function Home() {
     return b ? [b.start, b.end] : null;
   }, [selectedBucket, events, timeWindow, customRange, now]);
 
+  // ── Historical playback ───────────────────────────────────────────────────
+  // The [start, end] span the playhead sweeps: the custom range, the preset
+  // window relative to now, or (for "all") the full observed history.
+  const playbackRange = useMemo<[number, number]>(() => {
+    const end = now || Date.now();
+    if (timeWindow === "custom" && customRange) return customRange;
+    if (timeWindow === "all") {
+      let start = end - 24 * 60 * 60 * 1000;
+      for (const e of events) {
+        const t = new Date(e.publishedAt).getTime();
+        if (Number.isFinite(t) && t < start) start = t;
+      }
+      return [start, end];
+    }
+    return [end - windowMs(timeWindow), end];
+  }, [timeWindow, customRange, now, events]);
+
+  const playheadMs =
+    playFrac === null
+      ? null
+      : playbackRange[0] + playFrac * (playbackRange[1] - playbackRange[0]);
+
+  // While scrubbing/playing, a manual bucket selection is ignored so the two
+  // filters never fight (issue #19).
+  const effectiveBucketRange = playFrac === null ? bucketRange : null;
+
   const visibleEvents = useMemo(() => {
     let out = windowEvents;
     if (!settings.showLowConfidence) {
       out = out.filter((e) => e.location.confidence !== "low");
     }
-    if (bucketRange) {
-      const [start, end] = bucketRange;
+    if (effectiveBucketRange) {
+      const [start, end] = effectiveBucketRange;
       out = out.filter((e) => {
         const t = new Date(e.publishedAt).getTime();
         return t >= start && t <= end;
       });
     }
+    // Playback reconstructs the situation up to the playhead: only events that
+    // had been published by that moment are shown (issues #16, #17, #31).
+    if (playheadMs !== null) {
+      out = out.filter(
+        (e) => new Date(e.publishedAt).getTime() <= playheadMs,
+      );
+    }
     return out;
-  }, [windowEvents, bucketRange, settings.showLowConfidence]);
+  }, [windowEvents, effectiveBucketRange, playheadMs, settings.showLowConfidence]);
+
+  // The most recent event that has "arrived" at the playhead — highlighted so
+  // its animation reads as the freshest development while playing (issue #17).
+  const playbackFrontierId = useMemo(() => {
+    if (playheadMs === null) return null;
+    let best: string | null = null;
+    let bestT = -Infinity;
+    for (const e of windowEvents) {
+      const t = new Date(e.publishedAt).getTime();
+      if (t <= playheadMs && t > bestT) {
+        bestT = t;
+        best = e.id;
+      }
+    }
+    return best;
+  }, [windowEvents, playheadMs]);
 
   const detailEvent = useMemo(
     () => (detailId ? events.find((e) => e.id === detailId) ?? null : null),
@@ -209,6 +269,87 @@ export default function Home() {
     const id = requestAnimationFrame(() => mapApiRef.current?.resetView());
     return () => cancelAnimationFrame(id);
   }, [selectedBucket, bucketRange]);
+
+  // ── Playback controls ─────────────────────────────────────────────────────
+  const playActive = playing && playFrac !== null;
+
+  // Advance the playhead while playing; stop at the end (issue #16). Position
+  // updates are throttled to ~15fps: at 60fps we'd re-filter the whole event
+  // set and re-diff every marker four times as often for no visible benefit.
+  useEffect(() => {
+    if (!playActive) return;
+    let raf = 0;
+    let last: number | null = null;
+    let acc = 0;
+    const step = (t: number) => {
+      if (last !== null) {
+        acc += t - last;
+        if (acc >= 66) {
+          const advanced = acc;
+          acc = 0;
+          const sweep = BASE_PLAYBACK_MS / playSpeed;
+          setPlayFrac((f) => {
+            if (f === null) return f;
+            const nf = f + advanced / sweep;
+            if (nf >= 1) {
+              setPlaying(false);
+              return 1;
+            }
+            return nf;
+          });
+        }
+      }
+      last = t;
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [playActive, playSpeed]);
+
+  const handleTogglePlay = useCallback(() => {
+    setSelectedBucket(null);
+    if (playing) {
+      setPlaying(false);
+    } else {
+      // Starting from live mode or after reaching the end restarts at 0.
+      setPlayFrac((f) => (f === null || f >= 1 ? 0 : f));
+      setPlaying(true);
+    }
+    trackEvent("timeline_playback_toggle", { window: timeWindow, action: playing ? "pause" : "play" });
+  }, [playing, timeWindow]);
+
+  const handleScrub = useCallback((frac: number) => {
+    setSelectedBucket(null);
+    setPlayFrac(Math.max(0, Math.min(1, frac)));
+  }, []);
+
+  const handleStepPlayback = useCallback((dir: -1 | 1) => {
+    setSelectedBucket(null);
+    setPlaying(false);
+    setPlayFrac((f) => {
+      const base = f === null ? (dir === 1 ? 0 : 1) : f;
+      return Math.max(0, Math.min(1, base + dir / PLAYBACK_STEPS));
+    });
+    trackEvent("timeline_playback_step", { dir });
+  }, []);
+
+  const handleExitPlayback = useCallback(() => {
+    setPlaying(false);
+    setPlayFrac(null);
+    trackEvent("timeline_playback_exit");
+  }, []);
+
+  const handleSelectBucket = useCallback((index: number | null) => {
+    // Selecting a bucket exits playback so the two filters don't conflict.
+    setPlayFrac(null);
+    setPlaying(false);
+    setSelectedBucket(index);
+  }, []);
+
+  const handleSpeedChange = useCallback((s: number) => {
+    setPlaySpeed(s);
+    trackEvent("timeline_playback_speed", { speed: s });
+  }, []);
 
   // ── Bootstrap: mark everything present on first load as already-seen so we
   // don't alert for the initial backlog. ─────────────────────────────────
@@ -260,7 +401,7 @@ export default function Home() {
       <WarMap
         events={visibleEvents}
         focusedEventId={focusedId}
-        highlightedId={latestId}
+        highlightedId={playFrac === null ? latestId : playbackFrontierId}
         showVectors={settings.showVectors}
         onReady={handleMapReady}
       />
@@ -293,8 +434,17 @@ export default function Home() {
         selectedBucket={selectedBucket}
         customRange={customRange}
         onWindowChange={setTimeWindow}
-        onSelectBucket={setSelectedBucket}
+        onSelectBucket={handleSelectBucket}
         onSetCustomRange={setCustomRange}
+        playFrac={playFrac}
+        playing={playing}
+        playSpeed={playSpeed}
+        playheadMs={playheadMs}
+        onTogglePlay={handleTogglePlay}
+        onScrub={handleScrub}
+        onStepPlayback={handleStepPlayback}
+        onExitPlayback={handleExitPlayback}
+        onSpeedChange={handleSpeedChange}
       />
 
       <button
