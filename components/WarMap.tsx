@@ -216,9 +216,18 @@ export default function WarMap({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const markersRef = useRef<Map<string, LeafletMarker>>(new Map());
-  const vectorsRef = useRef<Map<string, { line: LeafletPolyline; origin: LeafletMarker }>>(
-    new Map(),
-  );
+  const vectorsRef = useRef<
+    Map<
+      string,
+      {
+        line: LeafletPolyline;
+        origin: LeafletMarker;
+        flyer?: LeafletMarker;
+        raf?: number;
+        timer?: ReturnType<typeof setTimeout>;
+      }
+    >
+  >(new Map());
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const hoverCbRef = useRef(onMarkerHover);
   hoverCbRef.current = onMarkerHover;
@@ -524,13 +533,72 @@ export default function WarMap({
         interactive: false,
       }).addTo(map);
 
-      vectorsRef.current.set(ev.id, { line, origin: originMarker });
+      // Issue #7: animate a "flyer" (missile/drone/…) traveling origin → target
+      // along the trajectory via requestAnimationFrame, then burst on impact —
+      // real movement instead of a static marker. The polyline stays visible so
+      // the full path is followable.
+      const flyer = L.marker([origin.lat, origin.lng], {
+        icon: L.divIcon({
+          html: `<div class="warmap-flyer" style="--marker-color:${vectorStrokeColor(mover)};"></div>`,
+          className: "warmap-divicon",
+          iconSize: [18, 18],
+          iconAnchor: [9, 9],
+        }),
+        interactive: false,
+        zIndexOffset: 1000,
+      }).addTo(map);
+
+      const record: {
+        line: LeafletPolyline;
+        origin: LeafletMarker;
+        flyer?: LeafletMarker;
+        raf?: number;
+        timer?: ReturnType<typeof setTimeout>;
+      } = { line, origin: originMarker, flyer };
+
+      const durationMs = 2600;
+      const startTs = performance.now();
+      const heading =
+        (Math.atan2(target.lng - origin.lng, target.lat - origin.lat) * 180) /
+        Math.PI;
+      const step = (now: number) => {
+        const t = Math.min(1, (now - startTs) / durationMs);
+        const lat = origin.lat + (target.lat - origin.lat) * t;
+        const lng = origin.lng + (target.lng - origin.lng) * t;
+        flyer.setLatLng([lat, lng]);
+        const el = flyer.getElement()?.firstElementChild as
+          | HTMLElement
+          | undefined;
+        if (el) el.style.transform = `rotate(${heading}deg)`;
+        if (t < 1) {
+          record.raf = requestAnimationFrame(step);
+        } else {
+          const impact = L.marker([target.lat, target.lng], {
+            icon: L.divIcon({
+              html: `<span class="warmap-impact" style="--marker-color:${vectorStrokeColor(mover)};"></span>`,
+              className: "warmap-divicon",
+              iconSize: [10, 10],
+              iconAnchor: [5, 5],
+            }),
+            interactive: false,
+          }).addTo(map);
+          flyer.remove();
+          record.flyer = undefined;
+          record.timer = setTimeout(() => impact.remove(), 1200);
+        }
+      };
+      record.raf = requestAnimationFrame(step);
+
+      vectorsRef.current.set(ev.id, record);
     }
 
     for (const [id, pair] of vectorsRef.current.entries()) {
       if (!seen.has(id)) {
+        if (pair.raf !== undefined) cancelAnimationFrame(pair.raf);
+        if (pair.timer !== undefined) clearTimeout(pair.timer);
         pair.line.remove();
         pair.origin.remove();
+        pair.flyer?.remove();
         vectorsRef.current.delete(id);
       }
     }
